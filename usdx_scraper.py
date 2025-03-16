@@ -8,6 +8,7 @@ from pytube import YouTube
 from spotipy.oauth2 import SpotifyClientCredentials
 from math import ceil
 import copy
+import subprocess
 
 # General
 LOGIN_URL = 'https://usdb.animux.de/index.php?&link=login'
@@ -288,7 +289,7 @@ def validate_txt_tags(file_path:str, tags:dict[str, str]):
     new_tags = current_tags | tags
 
     # Write all new tags to the file and append rest of file
-    with open(file_path, 'w',  encoding='utf-8') as file:
+    with open(file_path, 'w',  encoding='cp1252') as file:
         file.writelines([f"#{key}:{value}" for key,value in new_tags.items()])
         file.writelines(content)
 
@@ -341,35 +342,42 @@ def get_yt_url(song:str, id:str) -> str:
         return videosSearch.result()["result"][0]["link"]
 
 # Download all the songs and rename the folders to the correct song names from song_list
-def download_song(song:str, folder:str, songs_directory:str, url:str) -> str:
-
-    yt = YouTube(url)
-    stream = yt.streams.filter(only_audio=False, file_extension="mp4").first()
-
+def download_song(song: str, folder: str, songs_directory: str, url: str) -> str:
     # Rename folders
     desired_path = os.path.join(songs_directory, song)
 
     if song in os.listdir(songs_directory):
-        #print(f"Tried to rename but folder already exists! Keeping old names... {desired_path}")
         desired_path = os.path.join(songs_directory, folder)
         song = folder
     elif folder in os.listdir(songs_directory):
         os.rename(os.path.join(songs_directory, folder), desired_path)
-    else: 
+    else:
         print(f"Could not find directory {os.path.join(songs_directory, folder)}")
         raise FileNotFoundError
-    
+
     for file in os.listdir(desired_path):
         file_ending = os.path.splitext(file)[-1]
         if os.path.isfile(os.path.join(desired_path, file)):
-            os.rename(os.path.join(desired_path, file), os.path.join(desired_path, f"{song}{file_ending}")) 
+            os.rename(os.path.join(desired_path, file), os.path.join(desired_path, f"{song}{file_ending}"))
         else:
             print(f"Could not find file {os.path.join(desired_path, file)}")
             raise FileNotFoundError
 
-    # Download the files, age-restricted or else will be skipped
-    out_file = stream.download(output_path=desired_path, filename=f'{song}.mp3', skip_existing=True)
-        
+    # Download the best quality audio and convert to MP3 at 320kbps
+    try:
+        subprocess.run([
+            "yt-dlp",
+            "-f", "bestaudio/best",
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--audio-quality", "320K",
+            "--output", os.path.join(desired_path, f"{song}.%(ext)s"),
+            url
+        ], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"yt-dlp failed with error: {e}")
+        raise
+
     return song
 
 def remove_duplicates(directory:str, song_list:str) -> list[list]:
@@ -447,6 +455,7 @@ def main():
         search_list += [line.try_separate() for line in parse_songs_from_textfile(path=textfile)]
 
     search_list = list(set(search_list))
+    print(search_list)
 
     # Check the USDB for matches
     print("Searching for matches...")
@@ -459,14 +468,17 @@ def main():
     
     # Remove songs which are already in the output directory
     song_list = remove_duplicates(directory=user_args["output_path"],song_list=song_list)
+    print(song_list)
 
     # Create cookies based on that
     print("Creating cookies...")
     cookie_list = create_cookies(song_list)
+    print(cookie_list)
 
     # Create users download URL
     print("Creating personal download URL...")
     download_url = create_personal_download_url(user_args["user"])
+    print(download_url)
 
     folder_list = []
 
@@ -485,6 +497,8 @@ def main():
             print(f"[{(count+1):04d}/{len(cookie_list):04d}] Error while downloading .txt files, skipping {cookie[:-1]}...")
             folder_list.append(None)
 
+    print(folder_list)
+
     # Create Tuple List and delete entries where folder is not set
     song_folder_tuples = [(song, folder) for song, folder in zip(song_list, folder_list) if folder]
 
@@ -493,6 +507,7 @@ def main():
         try: 
             print(f'[{(count+1):04d}/{len(song_folder_tuples):04d}] Getting YT URL for song {song[1]}')
             url = get_yt_url(song=song[1], id=song[0])
+            print(url)
 
             print(f'[{(count+1):04d}/{len(song_folder_tuples):04d}] Downloading {song[1]}')
             folder = download_song(song=song[1], folder=folder, songs_directory=user_args["output_path"], url=url)

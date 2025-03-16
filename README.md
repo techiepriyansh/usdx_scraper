@@ -1,4 +1,9 @@
 # USDX Scraper
+## Fork specific
+```bash
+python3 usdx_scraper.py -it songs.txt -u <usdb.animux-username> -p <usdb.animux password>
+```
+
 ## Download your favorite songs for Ultrastar Deluxe
 
 UltraStar-Deluxe: https://github.com/UltraStar-Deluxe/USDX 
